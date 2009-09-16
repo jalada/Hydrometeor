@@ -37,6 +37,7 @@ loop(Req, _) ->
 				false ->
 					Since = null;
 				{value, {_, Y}} ->
+					%% TODO: Watch out for non-int
 					{Since, _} = string:to_integer(Y)
 			end,
 			if
