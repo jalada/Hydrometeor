@@ -1,0 +1,14 @@
+There's pretty much nothing here right now. But to (kinda) compile and run:
+
+ - make
+
+ - Adjust hm_rel-1.rel to correspond with your Erlang versions.
+    - If you have done this, run 'erl -pa ./ebin' then on the Erlang
+      command line:
+         systools:make_script("hm_rel-1", [local]).
+    - Quit the Erlang shell.
+
+ - erl -boot hm_rel-1
+
+-------
+-Jalada
