@@ -29,17 +29,17 @@ Using
 
 At the moment you can use the Erlang shell you are dumped in to send messages,
 like:
-	hm_server:send("channel", <<"Hello there!">>).
+	hm_server:send("testchannel", <<"Hello there!">>).
 
 Before sending that, in another terminal run a curl command ready to receive
 it:
-	curl "http://localhost:8000/subscribe?channel=channel"
+	curl "http://localhost:8000/subscribe?channel=testchannel"
 
 Messages are sent in a format of `id,message` for the moment. The id can be
 used with a since parameter. So for example, send another message:
-	hm_server:send("channel", <<"Hello again!">>).
+	hm_server:send("testchannel", <<"Hello again!">>).
 
 Now run the curl command:
-	curl "http://localhost:8000/subscribe?channel=channel&since=1"
+	curl "http://localhost:8000/subscribe?channel=testchannel&since=1"
 
 You should receive `2,Hello again!` straight away.
