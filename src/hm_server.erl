@@ -119,7 +119,7 @@ handle_call({send, Channel, Msg}, _From, State) when is_binary(Msg) ->
 handle_call({get_channel_log, Channel, Size}, _From, State) when is_integer(Size) ->
 	case ets:lookup(State#state.channels, Channel) of
 		[] ->
-			{reply, not_found, State};
+			{reply, [], State};
 		[{_Channel, Log}] ->
 			{reply, lists:sublist(Log, Size), State}
 	end;
