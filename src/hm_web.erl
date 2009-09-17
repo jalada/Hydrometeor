@@ -38,7 +38,12 @@ loop(Req, _) ->
 					Since = null;
 				{value, {_, Y}} ->
 					%% TODO: Watch out for non-int
-					{Since, _} = string:to_integer(Y)
+					case string:to_integer(Y) of
+						{error, _} ->
+							Since = null;
+						{X, _) ->
+							Since = X
+					end
 			end,
 			if
 				Channels /= null ->
