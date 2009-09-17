@@ -14,7 +14,7 @@ start(Options) ->
 stop() ->
     mochiweb_http:stop(?MODULE).
 
-loop(Req, _) ->
+loop(Req, DocRoot) ->
     "/" ++ Path = Req:get(path),
     case Req:get(method) of
         Method when Method =:= 'GET'; Method =:= 'HEAD' ->
@@ -37,11 +37,10 @@ loop(Req, _) ->
 				false ->
 					Since = null;
 				{value, {_, Y}} ->
-					%% TODO: Watch out for non-int
 					case string:to_integer(Y) of
 						{error, _} ->
 							Since = null;
-						{X, _) ->
+						{X, _} ->
 							Since = X
 					end
 			end,
@@ -52,7 +51,7 @@ loop(Req, _) ->
 					Req:respond({400, [], []})
 			end;
 		_ ->
-			Req:not_found()
+			Req:serve_file(Path, DocRoot)
             end;
         'POST' ->
             case Path of
@@ -83,17 +82,15 @@ do_stream(Req, Channels, Since, Type) ->
 			% Get all the logs
 			L = lists:flatten([ hm_server:get_channel_log(C, max) || C <- Channels ]),
 			% Find all messages greater_than Since
-			M = [ {Id, Msg} || {Id, Msg} <- L,
-					   Id > Since],
+			M = lists:keysort(1, [ {Id, Msg} || {Id, Msg} <- L,
+							    Id > Since]),
 			case M of
 				[] ->
 					% There isn't one, do_stream without Since
 					do_stream(Req, Channels, null, Type);
 				_ ->
-					% Find the smallest
-					{Id, Msg} = smallest_id(M),
-					% Send ourselves the message, then call feed
-					self() ! {router_msg, {Id, Msg}},
+					% Send ourselves the messages, then call feed
+					self() ! {router_msg, M},
 		                        Response = Req:ok({"text/html; charset=utf-8",
        				                   [{"Server","Hydrometeor"}], chunked}),
 					feed(Response, Type)
@@ -107,16 +104,31 @@ get_option(Option, Options) ->
 
 feed(Response, Type) ->
         receive
-        {router_msg, {Id, Msg}} ->
-		R = [integer_to_list(Id),",",binary_to_list(Msg)],
-                case Type of
-                        normal ->
-                                Response:write_chunk(R);
-                        {callback, Callback} ->
-                                Response:write_chunk([Callback, "(", R, ")"])
-                end
-        end,
-        Response:write_chunk([]).
+		%% If the router sent a list of messages in the first place, 
+		%% this could be consolidated into one. But for now, it's
+		%% separate in case I decide to have other messages sent to
+		%%this (which would then be tricky to spot
+        	{router_msg, {Id, Msg}} ->
+			Response:write_chunk(format_chunk(Id, Msg, Type));
+		{router_msg, L} when is_list(L) ->
+			[ Response:write_chunk(format_chunk(Id, Msg, Type)) || {Id, Msg} <- L ];
+		Else ->
+			% Just in case.
+			io:format("Stream process received unknown message: ~p~n", [Else])
+	end,
+       	Response:write_chunk([]).
+
+format_chunk(Id, Msg, Type) ->
+	% I don't think there's enough backslashes here. Stupid re.
+	R = [integer_to_list(Id),",\"",re:replace(Msg, "\\\"", "\\\\\\\"", [{return, list}, global]),"\""],
+	case Type of
+		normal ->
+			[R, "\n"];
+		{callback, Callback} ->
+			[Callback, "(", R, ")\n"]
+	end.
+
+	
 
 full_keyfind(Key, N, List) ->
         case lists:keytake(Key, N, List) of
@@ -125,21 +137,3 @@ full_keyfind(Key, N, List) ->
                 {value, Tuple, List2} ->
                         [Tuple | full_keyfind(Key, N, List2)]
         end.
-
-% This should never be called.
-smallest_id([]) ->
-	{0, error};
-smallest_id(L) ->
-	smallest_id_(L, 0, 0).
-
-smallest_id_([], Acc, AccMsg) ->	
-	{Acc, AccMsg};
-smallest_id_([{Id, Msg} | T], Acc, AccMsg) ->
-	if
-		Id < Acc ->
-			smallest_id_(T, Id, Msg);
-		Acc == 0 ->
-			smallest_id_(T, Id, Msg);
-		true ->
-			smallest_id_(T, Acc, AccMsg)
-	end.
