@@ -1,6 +1,6 @@
 -module(hm_web).
 
--export([start/1, stop/0, loop/2, do_stream/4]).
+-export([start/1, stop/0, loop/2, subscribe/4, backlog/4]).
 
 %% External API
 
@@ -46,10 +46,42 @@ loop(Req, DocRoot) ->
 			end,
 			if
 				Channels /= null ->
-					?MODULE:do_stream(Req, Channels, Since, Type);
+					?MODULE:subscribe(Req, Channels, Since, Type);
 				true ->
 					Req:respond({400, [], []})
 			end;
+		"backlog" ->
+			QueryString = Req:parse_qs(),
+			case lists:keysearch("callback", 1, QueryString) of
+				false ->
+					Type = normal;
+				{value, {_, Z}} ->
+					Type = {callback, Z}
+			end,
+			case full_keyfind("channel", 1, QueryString) of
+				[] ->
+					Channels = null;
+				List ->
+					Channels = [ C || {_, C} <- List ]
+			end,
+			case lists:keysearch("count", 1, QueryString) of
+				false ->
+					Count = null;
+				{value, {_, Y}} ->
+					case string:to_integer(Y) of
+						{error, _} ->
+							Count = null;
+						{X, _} ->
+							Count = X
+					end
+			end,
+			if
+				Channels /= null, Count /= null ->
+					?MODULE:backlog(Req, Channels, Count, Type);
+				true ->
+					Req:respond({400, [], []})
+			end;
+	
 		_ ->
 			Req:serve_file(Path, DocRoot)
             end;
@@ -70,7 +102,7 @@ loop(Req, DocRoot) ->
 %  together because we don't know how - we could be sending anything.
 % If there wasn't anything, then time to subscribe to them all. The first one that sends a response
 % gets sent.
-do_stream(Req, Channels, Since, Type) ->
+subscribe(Req, Channels, Since, Type) ->
 	case Since of
 		null ->
 			% Much easier
@@ -87,7 +119,7 @@ do_stream(Req, Channels, Since, Type) ->
 			case M of
 				[] ->
 					% There isn't one, do_stream without Since
-					do_stream(Req, Channels, null, Type);
+					subscribe(Req, Channels, null, Type);
 				_ ->
 					% Send ourselves the messages, then call feed
 					self() ! {router_msg, M},
@@ -96,6 +128,20 @@ do_stream(Req, Channels, Since, Type) ->
 					feed(Response, Type)
 			end
 	end.
+
+backlog(Req, Channels, Count, Type) ->
+	Response = Req:ok({"text/html; charset=utf-8",
+                   [{"Server","Hydrometeor"}], chunked}),
+	% Get a log of Count messages for each channel
+	L = lists:keysort(1, lists:flatten([ hm_server:get_channel_log(C, Count) || C <- Channels ])),
+	case L of
+		[] ->
+			ok;
+		_ ->
+			[ Response:write_chunk(format_chunk(Id, Msg, Type)) || {Id, Msg} <- L ]
+	end,
+	Response:write_chunk([]).
+			
 
 %% Internal API
 
