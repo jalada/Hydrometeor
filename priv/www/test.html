@@ -1,0 +1,18 @@
+<html>
+<head>
+<script type="text/javascript" src="jquery.js"></script>
+
+<script type="text/javascript">
+function test(id, msg) {
+	alert("Received " + id + ": " + msg);
+}
+
+$(document).ready(function() {
+  $.get("/subscribe?channel=test&since=5&callback=test", function(data, textStatus) { eval(data); });
+});
+</script>
+</head>
+
+<body>
+</body>
+</html>
