@@ -15,7 +15,7 @@ stop() ->
     mochiweb_http:stop(?MODULE).
 
 loop(Req, DocRoot) ->
-    "/" ++ Path = Req:get(path),
+    "/hm1backend/" ++ Path = Req:get(path),
     case Req:get(method) of
         Method when Method =:= 'GET'; Method =:= 'HEAD' ->
             case Path of
@@ -85,6 +85,15 @@ loop(Req, DocRoot) ->
 		_ ->
 			Req:serve_file(Path, DocRoot)
             end;
+	'OPTIONS' ->
+		case Path of
+			"subscribe" ->
+				Req:respond({200, [], []});
+			"backlog" ->
+				Req:respond({200, [], []});
+			_ ->
+				Req:not_found()
+		end;
         'POST' ->
             case Path of
                 _ ->
@@ -166,7 +175,7 @@ feed(Response, Type) ->
 
 format_chunk(Id, Msg, Type) ->
 	% I don't think there's enough backslashes here. Stupid re.
-	R = [integer_to_list(Id),",\"",re:replace(Msg, "\\\"", "\\\\\\\"", [{return, list}, global]),"\""],
+	R = [integer_to_list(Id),",\"",re:replace(Msg, "[^\\\\]\\\"", "\\\\\\\"", [{return, list}, global]),"\""],
 	case Type of
 		normal ->
 			[R, "\n"];

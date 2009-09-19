@@ -11,9 +11,9 @@ start_link() ->
 	supervisor:start_link({global, ?SERVER}, ?MODULE, []).
 
 init([]) ->
-	Ip = case os:getenv("MOCHIWEB_IP") of false -> "0.0.0.0"; Any -> Any end,
+	Ip = case os:getenv("MOCHIWEB_IP") of false -> "127.0.0.1"; Any -> Any end,
 	WebConfig = [{ip, Ip},
-                     {port, 8000},
+                     {port, 9002},
                      {docroot, local_path(["priv", "www"])}],
 	Web = {hm_web, {hm_web, start, [WebConfig]},
 	       permanent, 5000, worker, dynamic},
