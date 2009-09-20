@@ -2,6 +2,8 @@
 
 -export([start/1, stop/0, loop/2, subscribe/4, backlog/4]).
 
+-define(TIMEOUT, 110000).
+
 %% External API
 
 start(Options) ->
@@ -169,6 +171,11 @@ feed(Response, Type) ->
 		Else ->
 			% Just in case.
 			io:format("Stream process received unknown message: ~p~n", [Else])
+	% Currently hm_server doesn't implement a timeout, as Erlang itself guarantees messages will be sent.
+	% Could perhaps be added though.
+	after
+		?TIMEOUT ->
+			Response:write_chunk(["-1,\"\""])
 	end,
        	Response:write_chunk([]).
 
