@@ -107,8 +107,7 @@ loop(Req, DocRoot) ->
 % This is long-polling. So first we need to make sure we haven't missed anything.
 % This is done by using the provided Since parameter, if it exists:
 %  Get all the channel logs for the requested channels, and if there are any messages
-%  in the logs with an id of < Since, send the first one. We're not going to bundle them
-%  together because we don't know how - we could be sending anything.
+%  in the logs with an id of < Since, send the first one.
 % If there wasn't anything, then time to subscribe to them all. The first one that sends a response
 % gets sent.
 subscribe(Req, Channels, Since, Type) ->
