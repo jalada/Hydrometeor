@@ -1,0 +1,28 @@
+<html>
+<head>
+<script type="text/javascript" src="http://www.google.com/jsapi"></script>
+<script type="text/javascript">
+	google.load("jquery", "1.3.2");
+</script>
+<script type="text/javascript" src="hydrometeor.js"></script>
+<script>
+$(document).ready(function() {
+	Hydrometeor.path = "/pathtohydrometeor";
+	Hydrometeor.init();
+	Hydrometeor.registerEventCallback("process", "hmRecv");
+	Hydrometeor.joinChannel("channel", 15);
+	Hydrometeor.connect();
+});
+
+function hmRecv(msg) {
+	$("body").prepend(msg + "<p>");
+}
+
+
+
+
+</script>
+
+<body>
+</body>
+</html>
