@@ -175,12 +175,12 @@ feed(Response, Type) ->
 
 format_chunk(Id, Msg, Type) ->
 	% I don't think there's enough backslashes here. Stupid re.
-	R = [integer_to_list(Id),",\"",re:replace(Msg, "[^\\\\]\\\"", "\\\\\\\"", [{return, list}, global]),"\""],
+	R = ["\"",re:replace(Msg, "[^\\\\]\\\"", "\\\\\\\"", [{return, list}, global]),"\""],
 	case Type of
 		normal ->
-			[R, "\n"];
+			[integer_to_list(Id), ",", R, "\n"];
 		{callback, Callback} ->
-			[Callback, "(", R, ")\n"]
+			[integer_to_list(Id), ",", Callback, "(", R, ")\n"]
 	end.
 
 	

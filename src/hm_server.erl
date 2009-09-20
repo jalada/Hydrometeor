@@ -141,8 +141,14 @@ handle_cast({send, Channel, Msg}, State) when is_binary(Msg) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    case Info of
+        {'EXIT', Pid, _Why} ->
+            % force logout:
+            handle_call({logout, Pid}, blah, State);
+        Wtf ->
+            io:format("Caught unhandled message: ~w\n", [Wtf])
+    end,
     {noreply, State}.
 
 terminate(_Reason, _State) ->
