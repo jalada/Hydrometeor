@@ -35,13 +35,13 @@ like:
 
 Before sending that, in another terminal run a curl command ready to receive
 it:
-	curl "http://localhost:9002/subscribe?channel=testchannel"
+	curl "http://localhost:9002/hm1backend/subscribe?channel=testchannel"
 
 Messages are sent in a format of `id,message` for the moment. The id can be
 used with a since parameter. So for example, send another message:
 	hm_server:send("testchannel", <<"Hello again!">>).
 
 Now run the curl command:
-	curl "http://localhost:9002/subscribe?channel=testchannel&since=1"
+	curl "http://localhost:9002/hm1backend/subscribe?channel=testchannel&since=1"
 
 You should receive `2,Hello again!` straight away.
