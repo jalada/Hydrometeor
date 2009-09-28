@@ -26,12 +26,13 @@ Hydrometeor = {
 	callbacks: {
 		process: "",
 	},
-	channels: new Array(),
+	channels: {},
+	channelcount: 0,
+	backtrackqueue: new Array(),
 	path: null,
-	last: null,
 	status: 0,
 	xhr: null,
-	xhrdata: null,
+	xhrdata: {},
 
 	init: function() {
 		if (!Hydrometeor.path) throw "Hydrometeor path not specified";
@@ -42,65 +43,103 @@ Hydrometeor = {
 	},
 
 	joinChannel: function(channelName, backtrack) {
-		if (Hydrometeor.channels.inArray(channelName)) throw "Cannot join channel "+channelName+": already subscribed";
-		Hydrometeor.channels.push(channelName);
+		if (typeof(Hydrometeor.channels[channelName]) != "undefined") throw "Cannot join channel "+channelName+": already subscribed";
+		Hydrometeor.addChannel(channelName, backtrack);
 		Hydrometeor.updateXhrData();
-		// For the moment, backtracking occurs even if you're not connected
-		if (typeof(backtrack) == "number") {
-			$.get(Hydrometeor.path + "/backlog",
-				{channel: channelName, count: backtrack, callback: Hydrometeor.callbacks.process},
-				function(msg) {
-					// Split msg
-					m = msg.split("\n");
-					for (var i=0; i<m.length; i++) {
-						var id = m[i].indexOf(",");
-						if (id == -1) throw "Message received from Hydrometeor had no id!";
-						Hydrometeor.since = id;
-						eval(m[i].substr(id+1));
-					}
-				});
-		}
-		if (Hydrometeor.status != 0 && Hydrometeor.channels.length != 0) {
+		if (Hydrometeor.status != 0 && Hydrometeor.channelcount != 0) {
+			if (typeOf(backtrack) == "number") {	
+				Hydrometeor.doBacktrack(channelName);
+			}
 			Hydrometeor.connect();
+		} else if (Hydrometeor.status == 0 && Hydrometeor.channelcount != 0) {
+			Hydrometeor.backtrackqueue.push(channelName);
 		}
 	},
 
 	leaveChannel: function(channelName) {
-		if (!Hydrometeor.channels.inArray(channelName)) throw "Cannot leave channel "+channelName+": not subscribed";
-		channels.remove(channelName);
+		if (typeof(Hydrometeor.channels[channelName]) == "undefined") throw "Cannot leave channel "+channelName+": not subscribed";
+		Hydrometeor.deleteChannel(channelName);
 		Hydrometeor.updateXhrData();
-		if (Hydrometeor.status != 0 && Hydrometeor.channels.length != 0) {
+		if (Hydrometeor.status != 0 && Hydrometeor.channelcount != 0) {
 			Hydrometeor.connect();
 		} else {
 			Hydrometeor.disconnect();
 		}
 	},
 
+	addChannel: function(channelName, backtrack) {
+		Hydrometeor.channels[channelName] = {};
+		if (backtrack) {
+			Hydrometeor.channels[channelName].backtrack = backtrack;
+		}
+		// Better safe than sorry
+		Hydrometeor.channelcount++;
+	},
+	
+	deleteChannel: function(channelName) {
+		delete(Hydrometeor.channels[channelName]);
+		Hydrometeor.channelcount--;
+	},	
+
+	doBacktrack: function(channelName, callback) {
+		$.get(Hydrometeor.path + "/backlog",
+			{channel: channelName, count: Hydrometeor.channels[channelName].backtrack, callback: Hydrometeor.callbacks.process},
+			function(msg) {
+				// Split msg
+				m = msg.split("\n");
+				for (var i=0; i<m.length; i++) {
+					if (m[i] != "") {
+						var id = m[i].indexOf(",");
+						if (id == -1) throw "Message received from Hydrometeor had no id!";
+						Hydrometeor.updateSince(m[i].substr(0,id));
+						eval(m[i].substr(id+1));
+					}
+				}
+				delete(Hydrometeor.channels[channelName].backtrack);
+				// For when we are performing backtracks in a queue
+				Hydrometeor.backtrackqueue.remove(channelName);
+				if (Hydrometeor.backtrackqueue.length == 0 && callback) {
+					callback();
+				}
+			});
+	},
+
 	connect: function() {
 		if (!Hydrometeor.path) throw "Hydrometeor path not specified";
-		if (Hydrometeor.channels.length == 0) throw "No channels specified";
+		if (Hydrometeor.channelcount == 0) throw "No channels specified";
 		if (!Hydrometeor.callbacks.process) throw "No process callback specified";
 		if (!typeof(Hydrometeor.callbacks.process) == "string") throw "Specify process callback as a string = name of function";
 		if (Hydrometeor.status != 0) Hydrometeor.disconnect();
 		Hydrometeor.setstatus(1);
-		Hydrometeor.xhr = $.ajax({
-			type: "GET",
-			url:  Hydrometeor.path + "/subscribe",
-			data: Hydrometeor.xhrdata,
-			cache: false,
-			success: function(msg) {
-				var i = msg.indexOf(",");
-				if (i == -1) throw "Message received from Hydrometeor had no id!";
-				Hydrometeor.since = i;
-				// Reconnect by calling this again
-				Hydrometeor.connect();
-				// Rest of message is the function to evaluate
-				eval(msg.substr(i+1));
-			},
-			error: function() {
-				throw "Some sort of AJAX error?";
+		if (Hydrometeor.backtrackqueue.length > 0) {
+			for (var i=0; i <Hydrometeor.backtrackqueue.length; i++) {
+				Hydrometeor.doBacktrack(Hydrometeor.backtrackqueue[i], Hydrometeor.connect);
 			}
-			});
+		} else {
+			Hydrometeor.xhr = $.ajax({
+				type: "GET",
+				url:  Hydrometeor.path + "/subscribe",
+				data: Hydrometeor.xhrdata,
+				cache: false,
+				success: function(msg) {
+					m = msg.split("\n");
+					for (var i=0; i<m.length; i++) {
+						// TODO: Sort why this is returning a blank line at the bottom
+						if (m[i] != "") {
+							var id = m[i].indexOf(",");
+							if (id == -1) throw "Message received from Hydrometeor had no id!";
+							Hydrometeor.updateSince(m[i].substr(0,id));
+							eval(m[i].substr(id+1));
+						}
+					}
+					// Reconnect by calling this again
+					Hydrometeor.connect();
+				},
+				error: function() {
+					throw "Some sort of AJAX error?";
+				}
+				});
+		}
 	},
 
 	disconnect: function() {
@@ -111,7 +150,19 @@ Hydrometeor = {
 	},
 
 	updateXhrData: function() {
-  		Hydrometeor.xhrdata = { "channel": Hydrometeor.channels, "callback": Hydrometeor.callbacks.process };	
+		if (Hydrometeor.channelcount != 0) {
+			Hydrometeor.xhrdata["channel"] = [];
+			for (var c in Hydrometeor.channels) {
+				Hydrometeor.xhrdata["channel"].push(c);
+			}
+		} else {
+			delete(Hydrometeor.xhrdata["channel"]);
+		}
+		Hydrometeor.xhrdata["callback"] = Hydrometeor.callbacks.process;	
+	},
+
+	updateSince: function(i) {
+		Hydrometeor.xhrdata["since"] = ( i > Hydrometeor.xhrdata["since"] || !Hydrometeor.xhrdata["since"] ) ? i : Hydrometeor.xhrdata["since"];
 	},
 
 	setstatus: function(newstatus) {
