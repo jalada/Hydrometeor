@@ -1,30 +1,24 @@
 -module(hm_server).
 -behaviour(gen_server).
 
-%% First attempt at hydrometeor server should:
-%% Act as a message router
-%% Store messages as they are sent
-%% Return recent messages
-%% Empty channels
-
 %% Lots of this code is taken from Richard Jones's tutorial about
 %% making a million-user Comet application with Mochiweb.
 
 -export([start_link/0]).
 -export([login/2, logout/1, send/2, get_channel_log/2, list_channels/0,
 	 current_id/0]).
--export([delete_channel/1]).
+-export([delete_channel/1, dump_messages/0, load_messages/0]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
 	 code_change/3]).
 
 -define(SERVER, ?MODULE).
 -define(MAXLOGSIZE, 50).
+-define(CHANNELSTATEFILENAME, "hm_channelstate.log").
 
 % state will hold bidirectional mapping between channel <-> pid
 % and also contain the last messages sent in a channel in a list.
 -record(state, {pid2channel, channel2pid, channels, id}).
-
 
 % Public API
 start_link() ->
@@ -62,6 +56,12 @@ current_id() ->
 delete_channel(Channel) ->
 	gen_server:cast(?SERVER, {delete_channel, Channel}).
 
+dump_messages() ->
+	gen_server:call(?SERVER, {dump_messages}).
+
+load_messages() ->
+	gen_server:call(?SERVER, {load_messages}).
+
 %%%
 
 init([]) ->
@@ -70,10 +70,17 @@ init([]) ->
 	% use ets for tables. Could be changed to dets for persistent channels.
 	% Consider using ordered_set for channels in case we want to traverse
 	% them or something.
+	case ets:file2tab(filename:absname("") ++ "/" ++ ?CHANNELSTATEFILENAME) of
+		{error, Reason} ->
+			io:format("Error loading channels from statefile: ~p~nMaking new channel table~n", [Reason]),
+			C = ets:new(?MODULE, [set]);
+		{ok, Tab} ->
+			C = Tab
+	end,
 	{ok, #state{
 			pid2channel = ets:new(?MODULE, [bag]),
 			channel2pid = ets:new(?MODULE, [bag]),
-			channels = ets:new(?MODULE, [set]),
+			channels = C,
 			id = 1
 		   }
 	}.
@@ -94,7 +101,6 @@ handle_call({logout, Pid}, _From, State) when is_pid(Pid) ->
 		_ ->
 			% invert tuples for deletion
 			ChannelRows = [ {C,P} || {P,C} <- PidRows ],
-			io:format("~p~n", [ChannelRows]),
 			% delete all pid->channel entries
 			ets:delete(State#state.pid2channel, Pid),
 			% and all id->pid
@@ -115,12 +121,26 @@ handle_call({list_channels}, _From, State) ->
 	{reply, L, State};
 
 handle_call({current_id}, _From, State) ->
-	{reply, State#state.id, State}.
+	{reply, State#state.id, State};
+
+handle_call({dump_messages}, _From, State) ->
+	R = ets:tab2file(State#state.channels, filename:absname("") ++ "/" ++ ?CHANNELSTATEFILENAME),
+	{reply, R, State};
+
+handle_call({load_messages}, _From, State) ->
+	case ets:file2tab(?CHANNELSTATEFILENAME) of
+		{error, Reason} ->
+			{reply, {error, Reason}, State};
+		{ok, Tab} ->
+			{reply, ok, State#state{channels = Tab}}
+	end.
 
 handle_cast({delete_channel, Channel}, State) ->
 	ets:delete(State#state.channels, Channel),
 	{noreply, State};
 
+handle_cast({send, Channel, Msg}, State) when is_list(Msg) ->
+	handle_cast({send, Channel, list_to_binary(Msg)}, State);
 handle_cast({send, Channel, Msg}, State) when is_binary(Msg) ->
 	% Make Msg tuple
 	IdMsg = {State#state.id, Msg},
@@ -151,8 +171,10 @@ handle_info(Info, State) ->
     end,
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, State) ->
+	ets:tab2file(State#state.channels, filename:absname("") ++ "/" ++ ?CHANNELSTATEFILENAME),
+    	ok.
+
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
