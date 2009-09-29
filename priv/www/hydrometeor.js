@@ -48,11 +48,12 @@ Hydrometeor = {
 		Hydrometeor.updateXhrData();
 		if (Hydrometeor.status != 0 && Hydrometeor.channelcount != 0) {
 			if (typeOf(backtrack) == "number") {	
-				Hydrometeor.doBacktrack(channelName);
+				Hydrometeor.doBacktrack(channelName, Hydrometeor.connect);
 			}
-			Hydrometeor.connect();
 		} else if (Hydrometeor.status == 0 && Hydrometeor.channelcount != 0) {
-			Hydrometeor.backtrackqueue.push(channelName);
+			if (typeOf(backtrack) == "number") {
+				Hydrometeor.backtrackqueue.push(channelName);
+			}
 		}
 	},
 
