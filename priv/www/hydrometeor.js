@@ -47,11 +47,11 @@ Hydrometeor = {
 		Hydrometeor.addChannel(channelName, backtrack);
 		Hydrometeor.updateXhrData();
 		if (Hydrometeor.status != 0 && Hydrometeor.channelcount != 0) {
-			if (typeOf(backtrack) == "number") {	
+			if (typeof(backtrack) == "number") {	
 				Hydrometeor.doBacktrack(channelName, Hydrometeor.connect);
 			}
 		} else if (Hydrometeor.status == 0 && Hydrometeor.channelcount != 0) {
-			if (typeOf(backtrack) == "number") {
+			if (typeof(backtrack) == "number") {
 				Hydrometeor.backtrackqueue.push(channelName);
 			}
 		}
