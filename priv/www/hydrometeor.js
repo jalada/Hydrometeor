@@ -12,7 +12,7 @@ Array.prototype.inArray = function (value) {
 	return false;
 };
 
-Array.prototype.remove = function (value) {
+Array.prototype.removeItem = function (value) {
 	var i;
 	for(i=0; i < this.length; i++) {
 		if(this[i] === value) {
@@ -24,7 +24,7 @@ Array.prototype.remove = function (value) {
 Hydrometeor = {
 
 	callbacks: {
-		process: "",
+		process: ""
 	},
 	channels: {},
 	channelcount: 0,
@@ -98,7 +98,7 @@ Hydrometeor = {
 				}
 				delete(Hydrometeor.channels[channelName].backtrack);
 				// For when we are performing backtracks in a queue
-				Hydrometeor.backtrackqueue.remove(channelName);
+				Hydrometeor.backtrackqueue.removeItem(channelName);
 				if (Hydrometeor.backtrackqueue.length == 0 && callback) {
 					callback();
 				}
