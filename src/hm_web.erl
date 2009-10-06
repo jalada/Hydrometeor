@@ -33,7 +33,7 @@ loop(Req, DocRoot) ->
 				[] ->
 					Channels = null;
 				List ->
-					Channels = [ C || {_, C} <- List ]
+					Channels = [ mochiweb_util:unquote(C) || {_, C} <- List ]
 			end,
 			case lists:keysearch("since", 1, QueryString) of
 				false ->
@@ -64,7 +64,7 @@ loop(Req, DocRoot) ->
 				[] ->
 					Channels = null;
 				List ->
-					Channels = [ C || {_, C} <- List ]
+					Channels = [ mochiweb_util:unquote(C) || {_, C} <- List ]
 			end,
 			case lists:keysearch("count", 1, QueryString) of
 				false ->
@@ -181,7 +181,7 @@ feed(Response, Type) ->
 
 format_chunk(Id, Msg, Type) ->
 	% I don't think there's enough backslashes here. Stupid re.
-	R = ["\"",re:replace(Msg, "[^\\\\]\\\"", "\\\\\\\"", [{return, list}, global]),"\""],
+	R = mochiweb_util:shell_quote(any_to_list(Msg)),
 	case Type of
 		normal ->
 			[integer_to_list(Id), ",", R, "\n"];
@@ -198,3 +198,8 @@ full_keyfind(Key, N, List) ->
                 {value, Tuple, List2} ->
                         [Tuple | full_keyfind(Key, N, List2)]
         end.
+
+any_to_list(X) when is_list(X) ->
+	X;
+any_to_list(X) when is_bitstring(X) ->
+	bitstring_to_list(X).

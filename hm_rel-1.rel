@@ -1,8 +1,8 @@
 {release, {"hm_rel", "1"},
-	  {erts, "5.6.5"},
-	  [{kernel, "2.12.5"},
-	   {stdlib, "1.15.5"},
-	   {sasl, "2.1.5.4"},
-	   {inets, "5.0.12"},
+	  {erts, "5.7.3"},
+	  [{kernel, "2.13.3"},
+	   {stdlib, "1.16.3"},
+	   {sasl, "2.1.7"},
+	   {inets, "5.1.3"},
 	   {hydrometeor, "1.0"}]
 }.

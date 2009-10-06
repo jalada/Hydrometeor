@@ -34,10 +34,11 @@ logout(Pid) when is_pid(Pid) ->
 
 % Send Msg to anyone logged in to Channel.
 % I want to set the standards here, Msg should be a binary.
+% TODO: Change everything else so we don't need to unquote here.
 send(Channel, Msg) when is_binary(Msg) ->
-	gen_server:cast(?SERVER, {send, Channel, Msg});
+	gen_server:cast(?SERVER, {send, mochiweb_util:unquote(Channel), Msg});
 send(Channel, Msg) when is_list(Msg) ->
-	gen_server:cast(?SERVER, {send, Channel, list_to_binary(Msg)}).
+	gen_server:cast(?SERVER, {send, mochiweb_util:unquote(Channel), list_to_binary(Msg)}).
 
 % Get a message log for a Channel of size Size.
 get_channel_log(Channel, Size) when is_integer(Size) ->
@@ -53,12 +54,16 @@ current_id() ->
 
 % Delete a channel (can also be used to clear a channel's message history)
 % Doesn't really need to be a cast, I'm just practising.
+% TODO: remove need for unquote (clientfall)
 delete_channel(Channel) ->
-	gen_server:cast(?SERVER, {delete_channel, Channel}).
+	gen_server:cast(?SERVER, {delete_channel, mochiweb_util:unquote(Channel)}).
 
+% Dump message queues out to a pre-determined file. Used for maintaining state
+% across restarts.
 dump_messages() ->
 	gen_server:call(?SERVER, {dump_messages}).
 
+% Ditto the above, but for loading.
 load_messages() ->
 	gen_server:call(?SERVER, {load_messages}).
 
@@ -67,9 +72,8 @@ load_messages() ->
 init([]) ->
 	% set this so we can catch death of logged in pids:
 	process_flag(trap_exit, true),
-	% use ets for tables. Could be changed to dets for persistent channels.
-	% Consider using ordered_set for channels in case we want to traverse
-	% them or something.
+
+	% Load channel queues from state file.
 	case ets:file2tab(filename:absname("") ++ "/" ++ ?CHANNELSTATEFILENAME) of
 		{error, Reason} ->
 			io:format("Error loading channels from statefile: ~p~nMaking new channel table~n", [Reason]),
@@ -77,6 +81,9 @@ init([]) ->
 		{ok, Tab} ->
 			C = Tab
 	end,
+
+	% Consider using ordered_set for channels in case we want to traverse
+	% them or something.
 	{ok, #state{
 			pid2channel = ets:new(?MODULE, [bag]),
 			channel2pid = ets:new(?MODULE, [bag]),
@@ -135,13 +142,18 @@ handle_call({load_messages}, _From, State) ->
 			{reply, ok, State#state{channels = Tab}}
 	end.
 
-handle_cast({delete_channel, Channel}, State) ->
+handle_cast({delete_channel, Q_Channel}, State) ->
+	% TODO: Don't want to use unquote
+	Channel = mochiweb_util:unquote(Q_Channel),
+	io:format("DEBUG: Deleting channel ~p~n", [Channel]),
 	ets:delete(State#state.channels, Channel),
 	{noreply, State};
 
 handle_cast({send, Channel, Msg}, State) when is_list(Msg) ->
 	handle_cast({send, Channel, list_to_binary(Msg)}, State);
-handle_cast({send, Channel, Msg}, State) when is_binary(Msg) ->
+handle_cast({send, Q_Channel, Msg}, State) when is_binary(Msg) ->
+	% TODO: Don't want to use unquote
+	Channel = mochiweb_util:unquote(Q_Channel),
 	% Make Msg tuple
 	IdMsg = {State#state.id, Msg},
 	% get Pids logged in to this channel
