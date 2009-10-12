@@ -17,93 +17,133 @@ stop() ->
     mochiweb_http:stop(?MODULE).
 
 loop(Req, DocRoot) ->
-    "/hm1backend" ++ Path = Req:get(path),
-    case Req:get(method) of
-        Method when Method =:= 'GET'; Method =:= 'HEAD' ->
-            case Path of
-                "/subscribe" ->
-			QueryString = Req:parse_qs(),
-			case lists:keysearch("callback", 1, QueryString) of
-				false ->
-					Type = normal;
-				{value, {_, Z}} ->
-					Type = {callback, Z}
-			end,
-			case full_keyfind("channel", 1, QueryString) of
-				[] ->
-					Channels = null;
-				List ->
-					Channels = [ mochiweb_util:unquote(C) || {_, C} <- List ]
-			end,
-			case lists:keysearch("since", 1, QueryString) of
-				false ->
-					Since = null;
-				{value, {_, Y}} ->
-					case string:to_integer(Y) of
-						{error, _} ->
+	"/hm1backend" ++ Path = Req:get(path),
+	case Req:get(method) of
+		Method when Method =:= 'GET'; Method =:= 'HEAD' ->
+			case Path of
+				"/subscribe" ->
+					QueryString = Req:parse_qs(),
+					case lists:keysearch("callback", 1, QueryString) of
+						false ->
+							Type = normal;
+						{value, {_, Z}} ->
+							Type = {callback, Z}
+					end,
+					case full_keyfind("channel", 1, QueryString) of
+						[] ->
+							Channels = null;
+						List ->
+							Channels = [ mochiweb_util:unquote(C) || {_, C} <- List ]
+					end,
+					case lists:keysearch("since", 1, QueryString) of
+						false ->
 							Since = null;
-						{X, _} ->
-							Since = X
-					end
-			end,
-			if
-				Channels /= null ->
-					?MODULE:subscribe(Req, Channels, Since, Type);
-				true ->
-					Req:respond({400, [], []})
-			end;
-		"/backlog" ->
-			QueryString = Req:parse_qs(),
-			case lists:keysearch("callback", 1, QueryString) of
-				false ->
-					Type = normal;
-				{value, {_, Z}} ->
-					Type = {callback, Z}
-			end,
-			case full_keyfind("channel", 1, QueryString) of
-				[] ->
-					Channels = null;
-				List ->
-					Channels = [ mochiweb_util:unquote(C) || {_, C} <- List ]
-			end,
-			case lists:keysearch("count", 1, QueryString) of
-				false ->
-					Count = null;
-				{value, {_, Y}} ->
-					case string:to_integer(Y) of
-						{error, _} ->
+						{value, {_, Y}} ->
+							case string:to_integer(Y) of
+								{error, _} ->
+									Since = null;
+								{X, _} ->
+									Since = X
+							end
+					end,
+					if
+						Channels /= null ->
+							?MODULE:subscribe(Req, Channels, Since, Type);
+						true ->
+							Req:respond({400, [], []})
+					end;
+				"/backlog" ->
+					QueryString = Req:parse_qs(),
+					case lists:keysearch("callback", 1, QueryString) of
+						false ->
+							Type = normal;
+						{value, {_, Z}} ->
+							Type = {callback, Z}
+					end,
+					case full_keyfind("channel", 1, QueryString) of
+						[] ->
+							Channels = null;
+						List ->
+							Channels = [ mochiweb_util:unquote(C) || {_, C} <- List ]
+					end,
+					case lists:keysearch("count", 1, QueryString) of
+						false ->
 							Count = null;
-						{X, _} ->
-							Count = X
-					end
-			end,
-			if
-				Channels /= null, Count /= null ->
-					?MODULE:backlog(Req, Channels, Count, Type);
-				true ->
+						{value, {_, Y}} ->
+							case string:to_integer(Y) of
+								{error, _} ->
+									Count = null;
+								{X, _} ->
+									Count = X
+							end
+					end,
+					if
+						Channels /= null, Count /= null ->
+							?MODULE:backlog(Req, Channels, Count, Type);
+						true ->
+							Req:respond({400, [], []})
+					end;
+				_ ->
 					Req:respond({400, [], []})
+					end;
+		'OPTIONS' ->
+			case Path of
+				"subscribe" ->
+					Req:respond({200, [], []});
+				"backlog" ->
+					Req:respond({200, [], []});
+				_ ->
+					Req:not_found()
 			end;
-	
+		'POST' ->
+			case Path of
+				"/admin/send" ->
+					Post = Req:parse_post(),
+					case lists:keysearch("channel", 1, Post) of
+						false ->
+							Channels = null;
+						{value, {_, Z}} ->
+							L = string:tokens(Z, ","),
+							Channels = [ mochiweb_util:unquote(C) || C <- L ]
+					end,
+					case lists:keysearch("message", 1, Post) of
+						false ->
+							Message = null;
+						{value, {_, Y}} ->
+							Message = list_to_binary(mochiweb_util:unquote(Y))
+					end,
+					if
+						Channels /= null, Message /= null ->
+							% This is really simple, so we'll do it right here
+							io:format("Sending message to: ~p - ~p~n", [Channels, Message]),
+							[ hm_server:send(Channel, Message) || Channel <- Channels ],
+							Req:respond({200, [], []});
+						true ->
+							Req:respond({400, [], []})
+					end;
+				"/admin/deletechannel" ->
+					Post = Req:parse_post(),
+					case lists:keysearch("channel", 1, Post) of
+						false ->
+							Channels = null;
+						{value, {_, Z}} ->
+							L = string:tokens(Z, ","),
+							Channels = [ mochiweb_util:unquote(C) || C <- L ]
+					end,
+					if
+						Channels /= null ->
+							io:format("Deleting channels: ~p~n", [Channels]),
+							[ hm_server:delete_channel(Channel) || Channel <- Channels ],
+							Req:respond({200, [], []});
+						true ->
+							Req:respond({400, [], []})
+					end;
+				_ ->
+					Req:not_found()
+			end;
 		_ ->
-			Req:respond({400, [], []})
-            end;
-	'OPTIONS' ->
-		case Path of
-			"subscribe" ->
-				Req:respond({200, [], []});
-			"backlog" ->
-				Req:respond({200, [], []});
-			_ ->
-				Req:not_found()
-		end;
-        'POST' ->
-            case Path of
-                _ ->
-                    Req:not_found()
-            end;
-        _ ->
-            Req:respond({501, [], []})
-    end.
+			Req:respond({501, [], []})
+	end.
 
 % Procedure of starting a a stream:
 % This is long-polling. So first we need to make sure we haven't missed anything.
