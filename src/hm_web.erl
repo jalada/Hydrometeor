@@ -23,29 +23,20 @@ loop(Req, DocRoot) ->
 			case Path of
 				"/subscribe" ->
 					QueryString = Req:parse_qs(),
-					case lists:keysearch("callback", 1, QueryString) of
-						false ->
-							Type = normal;
-						{value, {_, Z}} ->
-							Type = {callback, Z}
-					end,
-					case full_keyfind("channel", 1, QueryString) of
-						[] ->
-							Channels = null;
-						List ->
-							Channels = [ mochiweb_util:unquote(C) || {_, C} <- List ]
-					end,
-					case lists:keysearch("since", 1, QueryString) of
-						false ->
-							Since = null;
-						{value, {_, Y}} ->
-							case string:to_integer(Y) of
-								{error, _} ->
-									Since = null;
-								{X, _} ->
-									Since = X
-							end
-					end,
+					Type = find_callback(QueryString),
+					Channels = find_channels(QueryString),
+					Since = find_number(QueryString, "since"),
+					if
+						Channels /= null ->
+							?MODULE:subscribe(Req, Channels, Since, Type);
+						true ->
+							Req:respond({400, [], []})
+					end;
+				"/stream" ->
+					QueryString = Req:parse_qs(),
+					Type = {stream, find_callback(QueryString)},
+					Channels = find_channels(QueryString),
+					Since = find_number(QueryString, "since"),
 					if
 						Channels /= null ->
 							?MODULE:subscribe(Req, Channels, Since, Type);
@@ -54,29 +45,9 @@ loop(Req, DocRoot) ->
 					end;
 				"/backlog" ->
 					QueryString = Req:parse_qs(),
-					case lists:keysearch("callback", 1, QueryString) of
-						false ->
-							Type = normal;
-						{value, {_, Z}} ->
-							Type = {callback, Z}
-					end,
-					case full_keyfind("channel", 1, QueryString) of
-						[] ->
-							Channels = null;
-						List ->
-							Channels = [ mochiweb_util:unquote(C) || {_, C} <- List ]
-					end,
-					case lists:keysearch("count", 1, QueryString) of
-						false ->
-							Count = null;
-						{value, {_, Y}} ->
-							case string:to_integer(Y) of
-								{error, _} ->
-									Count = null;
-								{X, _} ->
-									Count = X
-							end
-					end,
+					Type = find_callback(QueryString),
+					Channels = find_channels(QueryString),
+					Count = find_number(QueryString, "count"),
 					if
 						Channels /= null, Count /= null ->
 							?MODULE:backlog(Req, Channels, Count, Type);
@@ -145,6 +116,35 @@ loop(Req, DocRoot) ->
 			Req:respond({501, [], []})
 	end.
 
+find_callback(QueryString) ->
+	case lists:keysearch("callback", 1, QueryString) of
+		false ->
+			normal;
+		{value, {_, Z}} ->
+			{callback, Z}
+	end.
+
+find_channels(QueryString) ->
+	case full_keyfind("channel", 1, QueryString) of
+		[] ->
+			null;
+		List ->
+			[ mochiweb_util:unquote(C) || {_, C} <- List ]
+	end.
+
+find_number(QueryString, Key) ->
+	case lists:keysearch(Key, 1, QueryString) of
+		false ->
+			null;
+		{value, {_, Y}} ->
+			case string:to_integer(Y) of
+				{error, _} ->
+					null;
+				{X, _} ->
+					X
+			end
+	end.
+	
 % Procedure of starting a a stream:
 % This is long-polling. So first we need to make sure we haven't missed anything.
 % This is done by using the provided Since parameter, if it exists:
@@ -199,34 +199,35 @@ get_option(Option, Options) ->
     {proplists:get_value(Option, Options), proplists:delete(Option, Options)}.
 
 feed(Response, Type) ->
-        receive
-		%% If the router sent a list of messages in the first place, 
-		%% this could be consolidated into one. But for now, it's
-		%% separate in case I decide to have other messages sent to
-		%%this (which would then be tricky to spot
-        	{router_msg, {Id, Msg}} ->
+	receive
+       	{router_msg, {Id, Msg}} ->
 			Response:write_chunk(format_chunk(Id, Msg, Type));
 		{router_msg, L} when is_list(L) ->
 			[ Response:write_chunk(format_chunk(Id, Msg, Type)) || {Id, Msg} <- L ];
 		Else ->
 			% Just in case.
 			io:format("Stream process received unknown message: ~p~n", [Else])
-	% Currently hm_server doesn't implement a timeout, as Erlang itself guarantees messages will be sent.
-	% Could perhaps be added though.
 	after
 		?TIMEOUT ->
+			%% Not fully implemented in JS
 			Response:write_chunk(["-1,\"\""])
 	end,
-       	Response:write_chunk([]).
+	case Type of
+		{stream, _} ->
+			feed(Response, Type);
+		_ ->
+			Response:write_chunk([])
+	end.
 
 format_chunk(Id, Msg, Type) ->
-	% I don't think there's enough backslashes here. Stupid re.
 	R = mochiweb_util:shell_quote(any_to_list(Msg)),
 	case Type of
 		normal ->
 			[integer_to_list(Id), ",", R, "\n"];
 		{callback, Callback} ->
-			[integer_to_list(Id), ",", Callback, "(", R, ")\n"]
+			[integer_to_list(Id), ",", Callback, "(", R, ")\n"];
+		{stream, Actual_Type} ->
+			format_chunk(Id, Msg, Actual_Type)
 	end.
 
 	
