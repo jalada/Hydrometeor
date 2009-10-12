@@ -210,7 +210,7 @@ feed(Response, Type) ->
 	after
 		?TIMEOUT ->
 			%% Not fully implemented in JS
-			Response:write_chunk(["-1,\"\""])
+			Response:write_chunk(["-1,\"\"\n"])
 	end,
 	case Type of
 		{stream, _} ->
