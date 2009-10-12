@@ -17,11 +17,11 @@ stop() ->
     mochiweb_http:stop(?MODULE).
 
 loop(Req, DocRoot) ->
-    "/hm1backend/" ++ Path = Req:get(path),
+    "/hm1backend" ++ Path = Req:get(path),
     case Req:get(method) of
         Method when Method =:= 'GET'; Method =:= 'HEAD' ->
             case Path of
-                "subscribe" ->
+                "/subscribe" ->
 			QueryString = Req:parse_qs(),
 			case lists:keysearch("callback", 1, QueryString) of
 				false ->
@@ -52,7 +52,7 @@ loop(Req, DocRoot) ->
 				true ->
 					Req:respond({400, [], []})
 			end;
-		"backlog" ->
+		"/backlog" ->
 			QueryString = Req:parse_qs(),
 			case lists:keysearch("callback", 1, QueryString) of
 				false ->
@@ -85,7 +85,7 @@ loop(Req, DocRoot) ->
 			end;
 	
 		_ ->
-			Req:serve_file(Path, DocRoot)
+			Req:respond({400, [], []})
             end;
 	'OPTIONS' ->
 		case Path of
