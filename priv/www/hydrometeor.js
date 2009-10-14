@@ -33,6 +33,7 @@ Hydrometeor = {
 	status: 0,
 	xhr: null,
 	xhrdata: {},
+	method: "fanout",
 
 	init: function() {
 		if (!Hydrometeor.path) throw "Hydrometeor path not specified";
@@ -158,6 +159,12 @@ Hydrometeor = {
 			}
 		} else {
 			delete(Hydrometeor.xhrdata["channel"]);
+		},
+		if (Hydrometeor.method == "fanout" || Hydrometeor.method == "roundrobin") {
+			Hydrometeor.xhrdata["method"] = Hydrometeor.method;
+		} else {
+			delete(Hydrometeor.xhrdata["method"]);
+			throw "Method must be either fanout or roundrobin"
 		}
 		Hydrometeor.xhrdata["callback"] = Hydrometeor.callbacks.process;	
 	},
