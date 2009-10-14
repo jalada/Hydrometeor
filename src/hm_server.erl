@@ -5,7 +5,7 @@
 %% making a million-user Comet application with Mochiweb.
 
 -export([start_link/0]).
--export([login/2, logout/1, send/2, get_channel_log/2, list_channels/0,
+-export([login/2, rrlogin/2, logout/1, send/2, get_channel_log/2, list_channels/0,
 	 current_id/0]).
 -export([delete_channel/1, dump_messages/0, load_messages/0]).
 
@@ -27,6 +27,10 @@ start_link() ->
 % Log a Pid into a Channel
 login(Channel, Pid) when is_pid(Pid) ->
 	gen_server:call(?SERVER, {login, Channel, Pid}).
+
+% Log a Pid into a RR Channel
+rrlogin(Channel, Pid) when is_pid(Pid) ->
+	gen_server:call(?SERVER, {rrlogin, Channel, Pid}).
 
 % Logout of any channels
 logout(Pid) when is_pid(Pid) ->
@@ -99,6 +103,33 @@ handle_call({login, Channel, Pid}, _From, State) when is_pid(Pid) ->
 	link(Pid),
 	{reply, ok, State};
 
+handle_call({rrlogin, Channel, Pid}, _From, State) when is_pid(Pid) ->
+	ets:insert(State#state.pid2channel, {Pid, Channel}),
+	case ets:lookup(State#state.channel2pid, Channel) of
+		[] ->
+			% Not important
+			Old_Data = [],
+			Data = [Pid];
+		% Pure RR channel
+		[{Channel, List}] when is_list(List) ->
+			Old_Data = List,
+			Data = lists:append(List, [Pid]);
+		% Hybrid, or just normal subscribers
+		List when is_list(List) ->
+			case find_rr_list([ X || {_Channel, X} <- List ]) of
+				false ->
+					Old_Data = [],
+					Data = [Pid];
+				RR_List ->
+					Old_Data = RR_List,
+					Data = lists:append(RR_List, [Pid])
+			end
+	end,
+	ets:delete_object(State#state.channel2pid, {Channel, Old_Data}),
+	ets:insert(State#state.channel2pid, {Channel, Data}),
+	link(Pid),
+	{reply, ok, State};	
+
 handle_call({logout, Pid}, _From, State) when is_pid(Pid) ->
 	unlink(Pid),
 	PidRows = ets:lookup(State#state.pid2channel, Pid),
@@ -110,8 +141,14 @@ handle_call({logout, Pid}, _From, State) when is_pid(Pid) ->
 			ChannelRows = [ {C,P} || {P,C} <- PidRows ],
 			% delete all pid->channel entries
 			ets:delete(State#state.pid2channel, Pid),
-			% and all id->pid
-			[ ets:delete_object(State#state.channel2pid, Obj) || Obj <- ChannelRows ]
+			% For efficiency, try and delete all the channel2pids we can first anyway
+			[ ets:delete_object(State#state.channel2pid, Obj) || Obj <- ChannelRows ],
+			% Now find results containing this Pid (e.g. round robin)
+			% Quite longwinded to weed them out.
+			
+			Channels = [ C || {C,_} <- ChannelRows ],
+			Possible_Pid_Lists = lists:flatten([ ets:select(State#state.channel2pid, [{{Channel, '$2'}, [{is_list, '$2'}], ['$_']}]) || Channel <- Channels]),
+			[ find_and_delete_pids(State#state.channel2pid, Obj, Pid) || Obj <- Possible_Pid_Lists ]
 	end,
 	{reply, ok, State};
 
@@ -145,7 +182,6 @@ handle_call({load_messages}, _From, State) ->
 handle_cast({delete_channel, Q_Channel}, State) ->
 	% TODO: Don't want to use unquote
 	Channel = mochiweb_util:unquote(Q_Channel),
-	io:format("DEBUG: Deleting channel ~p~n", [Channel]),
 	ets:delete(State#state.channels, Channel),
 	{noreply, State};
 
@@ -157,10 +193,19 @@ handle_cast({send, Q_Channel, Msg}, State) when is_binary(Msg) ->
 	% Make Msg tuple
 	IdMsg = {State#state.id, Msg},
 	% get Pids logged in to this channel
-	Pids = [ P || { _Channel, P} <- ets:lookup(State#state.channel2pid, Channel) ],
+	{Pids, RR_List} = sort_channel_subscribers([ P || {_Channel, P} <- ets:lookup(State#state.channel2pid, Channel) ], {[], null}),
 	% send Msg to them all
 	M = {router_msg, IdMsg},
-	[ Pid ! M || Pid <- Pids],
+	[ Pid ! M || Pid <- Pids ],
+	case RR_List of
+		null ->
+			ok;
+		[H | T] ->
+			% Send to front of RR and put it at the back
+			H ! M,
+			ets:delete_object(State#state.channel2pid, {Channel, RR_List}),
+			ets:insert(State#state.channel2pid, {Channel, lists:append(T, [H])})
+	end,
 	% add msg to the channel log
 	case ets:lookup(State#state.channels, Channel) of
 		[] ->
@@ -191,3 +236,32 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%%
+find_rr_list([]) ->
+	false;
+find_rr_list([H | _]) when is_list(H) ->
+	H;
+find_rr_list([_ | T]) ->
+	find_rr_list(T).
+	
+find_and_delete_pids(Table, {Channel, Pid_List}, Pid) when is_list(Pid_List) ->
+	% Round Robin channel
+	ets:delete_object(Table, {Channel, Pid_List}),
+	% We may have duplicates, so don't just use lists:delete
+	X = lists:filter(fun(Elem) -> Elem /= Pid end, Pid_List),
+	case X of
+		[] ->
+			% No more RR subscribers, don't recreate the (empty) list
+			ok;
+		_ ->
+			ets:insert(Table, {Channel, X})
+	end.
+	
+sort_channel_subscribers([], Acc) ->
+	Acc;
+sort_channel_subscribers([H | T], {Pids, RR_List}) when is_pid(H) ->
+	sort_channel_subscribers(T, {[H | Pids], RR_List});
+sort_channel_subscribers([H | T], {Pids, null}) when is_list(H) ->
+	sort_channel_subscribers(T, {Pids, H});
+sort_channel_subscribers([H | T], {Pids, _}) when is_list(H) ->
+	error_logger:error_msg("A channel had two round-robin lists...That's not meant to happen. Fix your code~n"),
+	sort_channel_subscribers(T, {Pids, H}).

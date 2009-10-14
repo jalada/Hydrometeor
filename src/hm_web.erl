@@ -1,6 +1,6 @@
 -module(hm_web).
 
--export([start/1, stop/0, loop/2, subscribe/4, backlog/4]).
+-export([start/1, stop/0, loop/2, subscribe/5, backlog/4]).
 
 -define(TIMEOUT, 110000).
 
@@ -26,20 +26,22 @@ loop(Req, DocRoot) ->
 					Type = find_callback(QueryString),
 					Channels = find_channels(QueryString),
 					Since = find_number(QueryString, "since"),
+					Login_Function = find_method(QueryString),
 					if
 						Channels /= null ->
-							?MODULE:subscribe(Req, Channels, Since, Type);
+							?MODULE:subscribe(Req, Channels, Since, Type, Login_Function);
 						true ->
 							Req:respond({400, [], []})
-					end;
+					end;				
 				"/stream" ->
 					QueryString = Req:parse_qs(),
 					Type = {stream, find_callback(QueryString)},
 					Channels = find_channels(QueryString),
 					Since = find_number(QueryString, "since"),
+					Login_Function = find_method(QueryString),					
 					if
 						Channels /= null ->
-							?MODULE:subscribe(Req, Channels, Since, Type);
+							?MODULE:subscribe(Req, Channels, Since, Type, Login_Function);
 						true ->
 							Req:respond({400, [], []})
 					end;
@@ -144,6 +146,20 @@ find_number(QueryString, Key) ->
 					X
 			end
 	end.
+
+find_method(QueryString) ->
+	case lists:keysearch("method", 1, QueryString) of
+		false ->
+			% Default to normal login
+			fun hm_server:login/2;
+		{value, {_, "fanout"}} ->
+			fun hm_server:login/2;
+		{value, {_, "roundrobin"}} ->
+			fun hm_server:rrlogin/2;
+		_ ->
+			% Too much code to send an error, default
+			fun hm_server:login/2
+	end.
 	
 % Procedure of starting a a stream:
 % This is long-polling. So first we need to make sure we haven't missed anything.
@@ -152,11 +168,11 @@ find_number(QueryString, Key) ->
 %  in the logs with an id of < Since, send the first one.
 % If there wasn't anything, then time to subscribe to them all. The first one that sends a response
 % gets sent.
-subscribe(Req, Channels, Since, Type) ->
+subscribe(Req, Channels, Since, Type, Login_Function) ->
 	case Since of
 		null ->
 			% Much easier
-			[ hm_server:login(C, self()) || C <- Channels ],
+			[ Login_Function(C, self()) || C <- Channels ],
 			Response = Req:ok({"text/html; charset=utf-8",
 				   [{"Server","Hydrometeor"}], chunked}),
 			feed(Response, Type);
@@ -169,7 +185,7 @@ subscribe(Req, Channels, Since, Type) ->
 			case M of
 				[] ->
 					% There isn't one, do_stream without Since
-					subscribe(Req, Channels, null, Type);
+					subscribe(Req, Channels, null, Type, Login_Function);
 				_ ->
 					% Send ourselves the messages, then call feed
 					self() ! {router_msg, M},
