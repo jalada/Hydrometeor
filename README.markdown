@@ -31,20 +31,25 @@ Using
 
 At the moment you can use the Erlang shell you are dumped in to send messages,
 like:
+
   hm_server:send("testchannel", <<"Hello there!">>).
 
 Alternatively, you can send HTTP POST data to the server:
+
   curl -d "channel=testchannel&message=testmessage" http://localhost:9002/hm1backend/admin/send
 
 Before sending that, in another terminal run a curl command ready to receive
 it:
+
   curl "http://localhost:9002/hm1backend/subscribe?channel=testchannel"
 
 Messages are sent in a format of `id,message` for the moment. The id can be
 used with a since parameter. So for example, send another message:
+
   hm_server:send("testchannel", <<"Hello again!">>).
 
 Now run the curl command:
+
   curl "http://localhost:9002/hm1backend/subscribe?channel=testchannel&since=1"
 
 You should receive `2,Hello again!` straight away.
