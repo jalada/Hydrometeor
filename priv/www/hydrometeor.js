@@ -170,6 +170,7 @@ Hydrometeor = {
 	},
 
 	updateSince: function(i) {
+		var i = parseInt(i);
 		Hydrometeor.xhrdata["since"] = ( i > Hydrometeor.xhrdata["since"] || !Hydrometeor.xhrdata["since"] ) ? i : Hydrometeor.xhrdata["since"];
 	},
 
