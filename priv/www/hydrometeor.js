@@ -159,7 +159,7 @@ Hydrometeor = {
 			}
 		} else {
 			delete(Hydrometeor.xhrdata["channel"]);
-		},
+		}
 		if (Hydrometeor.method == "fanout" || Hydrometeor.method == "roundrobin") {
 			Hydrometeor.xhrdata["method"] = Hydrometeor.method;
 		} else {
