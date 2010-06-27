@@ -121,7 +121,8 @@ Hydrometeor = {
 			Hydrometeor.xhr = $.ajax({
 				type: "GET",
 				url:  Hydrometeor.path + "/subscribe",
-				data: Hydrometeor.xhrdata,
+				// Using 'traditional' param serialization to supress square brackets
+				data: $.param(Hydrometeor.xhrdata, true),
 				cache: false,
 				success: function(msg) {
 					m = msg.split("\n");

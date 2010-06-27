@@ -88,7 +88,6 @@ loop(Req, DocRoot) ->
 					if
 						Channels /= null, Message /= null ->
 							% This is really simple, so we'll do it right here
-							io:format("Sending message to: ~p - ~p~n", [Channels, Message]),
 							[ hm_server:send(Channel, Message) || Channel <- Channels ],
 							Req:respond({200, [], []});
 						true ->
@@ -105,7 +104,6 @@ loop(Req, DocRoot) ->
 					end,
 					if
 						Channels /= null ->
-							io:format("Deleting channels: ~p~n", [Channels]),
 							[ hm_server:delete_channel(Channel) || Channel <- Channels ],
 							Req:respond({200, [], []});
 						true ->
@@ -219,14 +217,14 @@ feed(Response, Type) ->
        	{router_msg, {Id, Msg}} ->
 			Response:write_chunk(format_chunk(Id, Msg, Type));
 		{router_msg, L} when is_list(L) ->
-			[ Response:write_chunk(format_chunk(Id, Msg, Type)) || {Id, Msg} <- L ];
+			newlines([ Response:write_chunk(format_chunk(Id, Msg, Type)) || {Id, Msg} <- L ]);
 		Else ->
 			% Just in case.
 			io:format("Stream process received unknown message: ~p~n", [Else])
 	after
 		?TIMEOUT ->
 			%% Not fully implemented in JS
-			Response:write_chunk(["-1,\"\"\n"])
+			Response:write_chunk(["-1,\"\""])
 	end,
 	case Type of
 		{stream, _} ->
@@ -236,17 +234,24 @@ feed(Response, Type) ->
 	end.
 
 format_chunk(Id, Msg, Type) ->
-	R = mochiweb_util:shell_quote(any_to_list(Msg)),
+	% Abusing json encoder to make the string Javascript safe
+	R = mochijson2:encode(Msg),
 	case Type of
 		normal ->
-			[integer_to_list(Id), ",", R, "\n"];
+			[integer_to_list(Id), ",", R];
 		{callback, Callback} ->
-			[integer_to_list(Id), ",", Callback, "(", R, ")\n"];
+			[integer_to_list(Id), ",", Callback, "(", R, ")"];
 		{stream, Actual_Type} ->
 			format_chunk(Id, Msg, Actual_Type)
 	end.
 
-	
+% There must be a better way than writing my own function.
+newlines([]) ->
+	[];
+newlines([H|[]]) ->
+	[H];
+newlines([H | T]) ->
+	[H, "\n" | newlines(T)].
 
 full_keyfind(Key, N, List) ->
         case lists:keytake(Key, N, List) of
