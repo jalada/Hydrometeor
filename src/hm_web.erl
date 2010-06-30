@@ -217,7 +217,7 @@ feed(Response, Type) ->
     {router_msg, {Id, Msg}} ->
 			Response:write_chunk(format_chunk(Id, Msg, Type));
 		{router_msg, L} when is_list(L) ->
-			newlines([ Response:write_chunk(format_chunk(Id, Msg, Type)) || {Id, Msg} <- L ]);
+			Response:write_chunk(newlines([ format_chunk(Id, Msg, Type) || {Id, Msg} <- L ]));
 		Else ->
 			% Just in case.
 			io:format("Stream process received unknown message: ~p~n", [Else])
