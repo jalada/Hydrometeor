@@ -214,7 +214,7 @@ get_option(Option, Options) ->
 
 feed(Response, Type) ->
 	receive
-       	{router_msg, {Id, Msg}} ->
+    {router_msg, {Id, Msg}} ->
 			Response:write_chunk(format_chunk(Id, Msg, Type));
 		{router_msg, L} when is_list(L) ->
 			newlines([ Response:write_chunk(format_chunk(Id, Msg, Type)) || {Id, Msg} <- L ]);
@@ -242,7 +242,7 @@ format_chunk(Id, Msg, Type) ->
 		{callback, Callback} ->
 			[integer_to_list(Id), ",", Callback, "(", R, ")"];
 		{stream, Actual_Type} ->
-			format_chunk(Id, Msg, Actual_Type)
+			[format_chunk(Id, Msg, Actual_Type), "\n"]
 	end.
 
 % There must be a better way than writing my own function.
