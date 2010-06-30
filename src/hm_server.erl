@@ -19,6 +19,7 @@
 % state will hold bidirectional mapping between channel <-> pid
 % and also contain the last messages sent in a channel in a list.
 -record(state, {pid2channel, channel2pid, channels, id}).
+-record(channel, {log, last_accessed}).
 
 % Public API
 start_link() ->
@@ -156,12 +157,12 @@ handle_call({get_channel_log, Channel, Size}, _From, State) when is_integer(Size
 	case ets:lookup(State#state.channels, Channel) of
 		[] ->
 			{reply, [], State};
-		[{_Channel, Log}] ->
-			{reply, lists:sublist(Log, Size), State}
+		[{_Channel, Channel_State}] ->
+			{reply, lists:sublist(Channel_State#channel.log, Size), State}
 	end;
 
 handle_call({list_channels}, _From, State) ->
-	L = [ {Channel, length(Log), length(ets:lookup(State#state.channel2pid, Channel))} || {Channel, Log} <- ets:tab2list(State#state.channels) ],
+	L = [ {Channel, length(Channel_State#channel.log), length(ets:lookup(State#state.channel2pid, Channel))} || {Channel, Channel_State} <- ets:tab2list(State#state.channels) ],
 	{reply, L, State};
 
 handle_call({current_id}, _From, State) ->
@@ -209,9 +210,9 @@ handle_cast({send, Q_Channel, Msg}, State) when is_binary(Msg) ->
 	% add msg to the channel log
 	case ets:lookup(State#state.channels, Channel) of
 		[] ->
-			ets:insert(State#state.channels, {Channel, [IdMsg]});
-		[{_Channel, Log}] ->
-			ets:insert(State#state.channels, {Channel, lists:sublist([IdMsg | Log], ?MAXLOGSIZE)})
+			ets:insert(State#state.channels, {Channel, #channel{log=[IdMsg], last_accessed=erlang:now()}});
+		[{_Channel, Channel_State}] ->
+			ets:insert(State#state.channels, {Channel, Channel_State#channel{log = lists:sublist([IdMsg | Channel_State#channel.log], ?MAXLOGSIZE), last_accessed=erlang:now()}})
 	end,
 	{noreply, State#state{id=State#state.id + 1}};
 
