@@ -25,6 +25,20 @@ Installing
 
  7. Have fun! You might need to look in the code to know what to do.
 
+Configuration
+-----
+
+Hydrometeor doesn't have a configuration file (yet), but most configurable
+parameters are easily located. Here's some you might want:
+
+ - **Listening port**: `src/hm_sup.erl`.
+ - **Long-polling connection timeout**: `src/hm_web.erl` at the top.
+ - **URI for Hydrometeor API**: `src/hm_web.erl` default is '/hm1backend'. 
+ - **Maximum channel log size**: `src/hm_server.erl` at the top.
+ - **Maximum channel age**: `src/hm_server.erl` at the top.
+ - **Channel 'state' file**: `src/hm_server.erl` at the top.
+ - **Housekeeping interval**: `src/hm_app.erl` at the top. You can also
+   control what housekeeping does here (write in your own Erlang if you want).
 
 Using
 -----

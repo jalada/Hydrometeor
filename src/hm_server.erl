@@ -6,7 +6,7 @@
 
 -export([start_link/0]).
 -export([login/2, rrlogin/2, logout/1, send/2, get_channel_log/2, list_channels/0,
-	 current_id/0]).
+	 run_housekeeping/0, current_id/0]).
 -export([delete_channel/1, dump_messages/0, load_messages/0]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
@@ -14,6 +14,8 @@
 
 -define(SERVER, ?MODULE).
 -define(MAXLOGSIZE, 50).
+% Maximum channel age in seconds, 'infinity' for no maximum age.
+-define(MAXCHANNELAGE, 300). % 5 minutes.
 -define(CHANNELSTATEFILENAME, "hm_channelstate.log").
 
 % state will hold bidirectional mapping between channel <-> pid
@@ -53,6 +55,9 @@ get_channel_log(Channel, max) ->
 
 list_channels() ->
 	gen_server:call(?SERVER, {list_channels}).
+
+run_housekeeping() ->
+	gen_server:call(?SERVER, {run_housekeeping}).
 
 current_id() ->
 	gen_server:call(?SERVER, {current_id}).
@@ -100,6 +105,14 @@ init([]) ->
 handle_call({login, Channel, Pid}, _From, State) when is_pid(Pid) ->
 	ets:insert(State#state.pid2channel, {Pid, Channel}),
 	ets:insert(State#state.channel2pid, {Channel, Pid}),
+	% Update last_accessed time for this channel
+	case ets:lookup(State#state.channels, Channel) of
+		[] ->
+			% Don't worry about it
+			ok;
+		[{Channel, Channel_State}] ->
+			ets:insert(State#state.channels, {Channel, Channel_State#channel{last_accessed = erlang:now()}})
+	end,
 	% tell us if they exit, so we can log them out
 	link(Pid),
 	{reply, ok, State};
@@ -162,7 +175,7 @@ handle_call({get_channel_log, Channel, Size}, _From, State) when is_integer(Size
 	end;
 
 handle_call({list_channels}, _From, State) ->
-	L = [ {Channel, length(Channel_State#channel.log), length(ets:lookup(State#state.channel2pid, Channel))} || {Channel, Channel_State} <- ets:tab2list(State#state.channels) ],
+	L = [ {Channel, length(Channel_State#channel.log), length(ets:lookup(State#state.channel2pid, Channel)), calendar:now_to_local_time(Channel_State#channel.last_accessed)} || {Channel, Channel_State} <- ets:tab2list(State#state.channels) ],
 	{reply, L, State};
 
 handle_call({current_id}, _From, State) ->
@@ -178,7 +191,17 @@ handle_call({load_messages}, _From, State) ->
 			{reply, {error, Reason}, State};
 		{ok, Tab} ->
 			{reply, ok, State#state{channels = Tab}}
-	end.
+	end;
+
+handle_call({run_housekeeping}, _From, State) ->
+	% Simplest way is to run this within the gen_server, though that could be considered bad practice due to blocking.
+	% Freeze the channel table
+	ets:safe_fixtable(State#state.channels, true),
+	Results = clean_old_channels(State#state.channels, ets:first(State#state.channels), []),
+	ets:safe_fixtable(State#state.channels, false),
+	% We pass the results back to the caller in case they have something they need to do with them
+	% (I know I want this, so I'm including it).
+	{reply, Results, State}.
 
 handle_cast({delete_channel, Q_Channel}, State) ->
 	% TODO: Don't want to use unquote
@@ -207,12 +230,12 @@ handle_cast({send, Q_Channel, Msg}, State) when is_binary(Msg) ->
 			ets:delete_object(State#state.channel2pid, {Channel, RR_List}),
 			ets:insert(State#state.channel2pid, {Channel, lists:append(T, [H])})
 	end,
-	% add msg to the channel log
+	% add msg to the channel log, set last_accessed if it's a new channel (don't otherwise)
 	case ets:lookup(State#state.channels, Channel) of
 		[] ->
 			ets:insert(State#state.channels, {Channel, #channel{log=[IdMsg], last_accessed=erlang:now()}});
 		[{_Channel, Channel_State}] ->
-			ets:insert(State#state.channels, {Channel, Channel_State#channel{log = lists:sublist([IdMsg | Channel_State#channel.log], ?MAXLOGSIZE), last_accessed=erlang:now()}})
+			ets:insert(State#state.channels, {Channel, Channel_State#channel{log = lists:sublist([IdMsg | Channel_State#channel.log], ?MAXLOGSIZE)}})
 	end,
 	{noreply, State#state{id=State#state.id + 1}};
 
@@ -266,3 +289,28 @@ sort_channel_subscribers([H | T], {Pids, null}) when is_list(H) ->
 sort_channel_subscribers([H | T], {Pids, _}) when is_list(H) ->
 	error_logger:error_msg("A channel had two round-robin lists...That's not meant to happen. Fix your code~n"),
 	sort_channel_subscribers(T, {Pids, H}).
+
+clean_old_channels(_, '$end_of_table', Results) ->
+	Results;
+clean_old_channels(Tab, Key, Results) ->
+	case ets:lookup(Tab, Key) of
+		[{Key, Channel_State}] ->
+			% We know channels aren't going to be older than 1 MegaSec (~11 days), but we'll check just in case.
+			{TM, TS, _} = Channel_State#channel.last_accessed,
+			{NM, NS, _} = erlang:now(),
+			if (NM - TM) > 0 ->
+				ets:delete(Tab, Key),
+				NResults = [Key | Results];
+			(NS - TS) > ?MAXCHANNELAGE ->
+				ets:delete(Tab, Key),
+				NResults = [Key | Results];
+			true ->
+				NResults = Results,
+				ok
+			end;
+		_ ->
+			NResults = Results,
+			% Strictly speaking wouldn't happen
+			ok
+	end,
+	clean_old_channels(Tab, ets:next(Tab,Key), NResults).
