@@ -83,7 +83,8 @@ loop(Req, DocRoot) ->
 						false ->
 							Message = null;
 						{value, {_, Y}} ->
-							Message = list_to_binary(mochiweb_util:unquote(Y))
+							%Message = list_to_binary(mochiweb_util:unquote(Y))
+							Message = list_to_binary(Y)
 					end,
 					if
 						Channels /= null, Message /= null ->
