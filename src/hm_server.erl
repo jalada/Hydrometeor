@@ -298,10 +298,7 @@ clean_old_channels(Tab, Key, Results) ->
 			% We know channels aren't going to be older than 1 MegaSec (~11 days), but we'll check just in case.
 			{TM, TS, _} = Channel_State#channel.last_accessed,
 			{NM, NS, _} = erlang:now(),
-			if (NM - TM) > 0 ->
-				ets:delete(Tab, Key),
-				NResults = [Key | Results];
-			(NS - TS) > ?MAXCHANNELAGE ->
+			if (NM - TM) > 0; (NS - TS) > ?MAXCHANNELAGE ->
 				ets:delete(Tab, Key),
 				NResults = [Key | Results];
 			true ->
