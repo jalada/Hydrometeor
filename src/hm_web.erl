@@ -211,13 +211,13 @@ backlog(Req, Channels, Count, Type, JSONP) ->
 		[] ->
 			ok;
 		_ ->
-			[ Response:write_chunk(format_chunk(Id, Msg, Type, JSONP)) || {Id, Msg} <- L ]
-	end,
-	case JSONP of
-		undefined ->
-			ok;
-		_ ->
-			Response:write_chunk([")"])
+			R = newlines([ format_chunk(Id, Msg, Type) || {Id, Msg} <- L ]),
+			case JSONP of
+				undefined ->
+					Response:write_chunk(R);
+				_ ->
+					Response:write_chunk([js_escape(R), "\")"])
+			end
 	end,
 	Response:write_chunk([]).
 
@@ -235,7 +235,7 @@ feed(Response, Type, JSONP) ->
 				_ ->
 					Response:write_chunk([JSONP, "(\""])
 			end,
-			Response:write_chunk(format_chunk(Id, Msg, Type, JSONP));
+			Response:write_chunk(js_escape(format_chunk(Id, Msg, Type)));
 		{router_msg, L} when is_list(L) ->
 			case JSONP of
 				undefined ->
@@ -243,7 +243,13 @@ feed(Response, Type, JSONP) ->
 				_ ->
 					Response:write_chunk([JSONP, "(\""])
 			end,
-			Response:write_chunk(newlines([ format_chunk(Id, Msg, Type, JSONP) || {Id, Msg} <- L ]));
+			R = newlines([ format_chunk(Id, Msg, Type) || {Id, Msg} <- L ]),
+			case JSONP of
+				undefined ->
+					Response:write_chunk(R);
+				_ ->
+					Response:write_chunk(js_escape(R))
+			end;
 		Else ->
 			% Just in case.
 			io:format("Stream process received unknown message: ~p~n", [Else])
@@ -260,47 +266,41 @@ feed(Response, Type, JSONP) ->
 				undefined ->
 					ok;
 				_ ->
-					Response:write_chunk([")"])
+					Response:write_chunk(["\")"])
 			end,
 			Response:write_chunk([])
 	end.
 
-format_chunk(Id, Msg, Type, JSONP) when is_binary(Msg) ->
+format_chunk(Id, Msg, Type) when is_binary(Msg) ->
 	% Abusing json encoder to make the string Javascript safe
-	% We have to escape TWICE for JSONP.
-	case JSONP of
-		undefined ->
-			R = mochijson2:encode(Msg);
-		_ ->
-			R = js_escape(mochijson2:encode(Msg), [?Q])
-	end,
-	 
+	R = mochijson2:encode(Msg),	 
 	case Type of
 		normal ->
 			[integer_to_list(Id), ",", R];
 		{callback, Callback} ->
 			[integer_to_list(Id), ",", Callback, "(", R, ")"];
 		{stream, Actual_Type} ->
-			[format_chunk(Id, Msg, Actual_Type, JSONP), "\n"]
+			[format_chunk(Id, Msg, Actual_Type), "\n"]
 	end.
 
-% Adapted from mochijson for when we just want to escape.
-js_escape([], Acc) ->
-    lists:reverse([$\" | Acc]);
-js_escape([C | Cs], Acc) ->
+% Adapted from mochijson for when we just want to escape. (for JSONP)
+% This will deep recurse through lists and binaries.
+js_escape(Str) when is_binary(Str) ->
+	js_escape(binary_to_list(Str), [], ext);
+js_escape(Str) when is_list(Str) ->
+	js_escape(Str, [], ext).
+js_escape([], Acc, int) ->
+	Acc;
+js_escape([], Acc, _) ->
+    lists:reverse(Acc);
+js_escape([B | Cs], Acc, Type) when is_binary(B) ->
+	js_escape(Cs, js_escape(binary_to_list(B), Acc, int), Type);
+js_escape([L | Cs], Acc, Type) when is_list(L) ->
+	js_escape(Cs, js_escape(L, Acc, int), Type);
+js_escape([C | Cs], Acc, Type) when is_integer(C) ->
     Acc1 = case C of
                ?Q ->
                    [?Q, $\\ | Acc];
-               %% Escaping solidus is only useful when trying to protect
-               %% against "</script>" injection attacks which are only
-               %% possible when JSON is inserted into a HTML document
-               %% in-line. mochijson2 does not protect you from this, so
-               %% if you do insert directly into HTML then you need to
-               %% uncomment the following case or escape the output of encode.
-               %%
-               %% $/ ->
-               %%    [$/, $\\ | Acc];
-               %%
                $\\ ->
                    [$\\, $\\ | Acc];
                $\b ->
@@ -317,7 +317,7 @@ js_escape([C | Cs], Acc) ->
 			       %% Blindly trust those that came before us
                    [C | Acc]
            end,
-    js_escape(Cs, Acc1).
+    js_escape(Cs, Acc1, Type).
 
 % There must be a better way than writing my own function.
 newlines([]) ->
