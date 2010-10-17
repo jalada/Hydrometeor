@@ -3,6 +3,8 @@
 -export([start/1, stop/0, loop/2, subscribe/6, backlog/5]).
 
 -define(TIMEOUT, 110000).
+% This is a macro to placate syntax highlighters..
+-define(Q, $\").
 
 %% External API
 
@@ -201,7 +203,7 @@ backlog(Req, Channels, Count, Type, JSONP) ->
 		undefined ->
 			ok;
 		_ ->
-			Response:write_chunk([JSONP, "("])
+			Response:write_chunk([JSONP, "(\""])
 	end,
 	% Get a log of Count messages for each channel
 	L = lists:keysort(1, lists:flatten([ hm_server:get_channel_log(C, Count) || C <- Channels ])),
@@ -209,7 +211,7 @@ backlog(Req, Channels, Count, Type, JSONP) ->
 		[] ->
 			ok;
 		_ ->
-			[ Response:write_chunk(format_chunk(Id, Msg, Type)) || {Id, Msg} <- L ]
+			[ Response:write_chunk(format_chunk(Id, Msg, Type, JSONP)) || {Id, Msg} <- L ]
 	end,
 	case JSONP of
 		undefined ->
@@ -231,17 +233,17 @@ feed(Response, Type, JSONP) ->
 				undefined ->
 					ok;
 				_ ->
-					Response:write_chunk([JSONP, "("])
+					Response:write_chunk([JSONP, "(\""])
 			end,
-			Response:write_chunk(format_chunk(Id, Msg, Type));
+			Response:write_chunk(format_chunk(Id, Msg, Type, JSONP));
 		{router_msg, L} when is_list(L) ->
 			case JSONP of
 				undefined ->
 					ok;
 				_ ->
-					Response:write_chunk([JSONP, "("])
+					Response:write_chunk([JSONP, "(\""])
 			end,
-			Response:write_chunk(newlines([ format_chunk(Id, Msg, Type) || {Id, Msg} <- L ]));
+			Response:write_chunk(newlines([ format_chunk(Id, Msg, Type, JSONP) || {Id, Msg} <- L ]));
 		Else ->
 			% Just in case.
 			io:format("Stream process received unknown message: ~p~n", [Else])
@@ -263,17 +265,59 @@ feed(Response, Type, JSONP) ->
 			Response:write_chunk([])
 	end.
 
-format_chunk(Id, Msg, Type) ->
+format_chunk(Id, Msg, Type, JSONP) when is_binary(Msg) ->
 	% Abusing json encoder to make the string Javascript safe
-	R = mochijson2:encode(Msg),
+	% We have to escape TWICE for JSONP.
+	case JSONP of
+		undefined ->
+			R = mochijson2:encode(Msg);
+		_ ->
+			R = js_escape(mochijson2:encode(Msg), [?Q])
+	end,
+	 
 	case Type of
 		normal ->
 			[integer_to_list(Id), ",", R];
 		{callback, Callback} ->
 			[integer_to_list(Id), ",", Callback, "(", R, ")"];
 		{stream, Actual_Type} ->
-			[format_chunk(Id, Msg, Actual_Type), "\n"]
+			[format_chunk(Id, Msg, Actual_Type, JSONP), "\n"]
 	end.
+
+% Adapted from mochijson for when we just want to escape.
+js_escape([], Acc) ->
+    lists:reverse([$\" | Acc]);
+js_escape([C | Cs], Acc) ->
+    Acc1 = case C of
+               ?Q ->
+                   [?Q, $\\ | Acc];
+               %% Escaping solidus is only useful when trying to protect
+               %% against "</script>" injection attacks which are only
+               %% possible when JSON is inserted into a HTML document
+               %% in-line. mochijson2 does not protect you from this, so
+               %% if you do insert directly into HTML then you need to
+               %% uncomment the following case or escape the output of encode.
+               %%
+               %% $/ ->
+               %%    [$/, $\\ | Acc];
+               %%
+               $\\ ->
+                   [$\\, $\\ | Acc];
+               $\b ->
+                   [$b, $\\ | Acc];
+               $\f ->
+                   [$f, $\\ | Acc];
+               $\n ->
+                   [$n, $\\ | Acc];
+               $\r ->
+                   [$r, $\\ | Acc];
+               $\t ->
+                   [$t, $\\ | Acc];
+               C ->
+			       %% Blindly trust those that came before us
+                   [C | Acc]
+           end,
+    js_escape(Cs, Acc1).
 
 % There must be a better way than writing my own function.
 newlines([]) ->
