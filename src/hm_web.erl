@@ -1,6 +1,6 @@
 -module(hm_web).
 
--export([start/1, stop/0, loop/2, subscribe/5, backlog/4]).
+-export([start/1, stop/0, loop/2, subscribe/6, backlog/5]).
 
 -define(TIMEOUT, 110000).
 
@@ -24,12 +24,13 @@ loop(Req, DocRoot) ->
 				"/subscribe" ->
 					QueryString = Req:parse_qs(),
 					Type = find_callback(QueryString),
+					JSONP = proplists:get_value("jsonp", QueryString),
 					Channels = find_channels(QueryString),
 					Since = find_number(QueryString, "since"),
 					Login_Function = find_method(QueryString),
 					if
 						Channels /= null ->
-							?MODULE:subscribe(Req, Channels, Since, Type, Login_Function);
+							?MODULE:subscribe(Req, Channels, Since, Type, Login_Function, JSONP);
 						true ->
 							Req:respond({400, [], []})
 					end;				
@@ -41,18 +42,19 @@ loop(Req, DocRoot) ->
 					Login_Function = find_method(QueryString),					
 					if
 						Channels /= null ->
-							?MODULE:subscribe(Req, Channels, Since, Type, Login_Function);
+							?MODULE:subscribe(Req, Channels, Since, Type, Login_Function, undefined);
 						true ->
 							Req:respond({400, [], []})
 					end;
 				"/backlog" ->
 					QueryString = Req:parse_qs(),
 					Type = find_callback(QueryString),
+					JSONP = proplists:get_value("jsonp", QueryString),					
 					Channels = find_channels(QueryString),
 					Count = find_number(QueryString, "count"),
 					if
 						Channels /= null, Count /= null ->
-							?MODULE:backlog(Req, Channels, Count, Type);
+							?MODULE:backlog(Req, Channels, Count, Type, JSONP);
 						true ->
 							Req:respond({400, [], []})
 					end;
@@ -167,14 +169,14 @@ find_method(QueryString) ->
 %  in the logs with an id of < Since, send the first one.
 % If there wasn't anything, then time to subscribe to them all. The first one that sends a response
 % gets sent.
-subscribe(Req, Channels, Since, Type, Login_Function) ->
+subscribe(Req, Channels, Since, Type, Login_Function, JSONP) ->
+	Response = Req:ok({"text/html; charset=utf-8",
+		   [{"Server","Hydrometeor"}], chunked}),	
 	case Since of
 		null ->
 			% Much easier
 			[ Login_Function(C, self()) || C <- Channels ],
-			Response = Req:ok({"text/html; charset=utf-8",
-				   [{"Server","Hydrometeor"}], chunked}),
-			feed(Response, Type);
+			feed(Response, Type, JSONP);
 		_ ->
 			% Get all the logs
 			L = lists:flatten([ hm_server:get_channel_log(C, max) || C <- Channels ]),
@@ -183,20 +185,24 @@ subscribe(Req, Channels, Since, Type, Login_Function) ->
 							    Id > Since]),
 			case M of
 				[] ->
-					% There isn't one, do_stream without Since
-					subscribe(Req, Channels, null, Type, Login_Function);
+					% There isn't one, stream without since
+					subscribe(Req, Channels, null, Type, Login_Function, JSONP);
 				_ ->
 					% Send ourselves the messages, then call feed
 					self() ! {router_msg, M},
-		                        Response = Req:ok({"text/html; charset=utf-8",
-       				                   [{"Server","Hydrometeor"}], chunked}),
-					feed(Response, Type)
+					feed(Response, Type, JSONP)
 			end
 	end.
 
-backlog(Req, Channels, Count, Type) ->
+backlog(Req, Channels, Count, Type, JSONP) ->
 	Response = Req:ok({"text/html; charset=utf-8",
                    [{"Server","Hydrometeor"}], chunked}),
+	case JSONP of
+		undefined ->
+			ok;
+		_ ->
+			Response:write_chunk([JSONP, "("])
+	end,
 	% Get a log of Count messages for each channel
 	L = lists:keysort(1, lists:flatten([ hm_server:get_channel_log(C, Count) || C <- Channels ])),
 	case L of
@@ -205,19 +211,36 @@ backlog(Req, Channels, Count, Type) ->
 		_ ->
 			[ Response:write_chunk(format_chunk(Id, Msg, Type)) || {Id, Msg} <- L ]
 	end,
+	case JSONP of
+		undefined ->
+			ok;
+		_ ->
+			Response:write_chunk([")"])
+	end,
 	Response:write_chunk([]).
-			
 
 %% Internal API
 
 get_option(Option, Options) ->
     {proplists:get_value(Option, Options), proplists:delete(Option, Options)}.
 
-feed(Response, Type) ->
+feed(Response, Type, JSONP) ->
 	receive
-    {router_msg, {Id, Msg}} ->
+    	{router_msg, {Id, Msg}} ->
+			case JSONP of
+				undefined ->
+					ok;
+				_ ->
+					Response:write_chunk([JSONP, "("])
+			end,
 			Response:write_chunk(format_chunk(Id, Msg, Type));
 		{router_msg, L} when is_list(L) ->
+			case JSONP of
+				undefined ->
+					ok;
+				_ ->
+					Response:write_chunk([JSONP, "("])
+			end,
 			Response:write_chunk(newlines([ format_chunk(Id, Msg, Type) || {Id, Msg} <- L ]));
 		Else ->
 			% Just in case.
@@ -229,8 +252,14 @@ feed(Response, Type) ->
 	end,
 	case Type of
 		{stream, _} ->
-			feed(Response, Type);
+			feed(Response, Type, JSONP);
 		_ ->
+			case JSONP of
+				undefined ->
+					ok;
+				_ ->
+					Response:write_chunk([")"])
+			end,
 			Response:write_chunk([])
 	end.
 
