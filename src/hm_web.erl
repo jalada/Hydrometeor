@@ -5,6 +5,7 @@
 -define(TIMEOUT, 110000).
 % This is a macro to placate syntax highlighters..
 -define(Q, $\").
+%%"
 
 %% External API
 
@@ -32,7 +33,9 @@ loop(Req, DocRoot) ->
 					Login_Function = find_method(QueryString),
 					if
 						Channels /= null ->
-							?MODULE:subscribe(Req, Channels, Since, Type, Login_Function, JSONP);
+              Response = Req:ok({"text/html; charset=utf-8",
+        		    [{"Server","Hydrometeor"}], chunked}),	
+							?MODULE:subscribe(Response, Channels, Since, Type, Login_Function, JSONP);
 						true ->
 							Req:respond({400, [], []})
 					end;				
@@ -44,7 +47,9 @@ loop(Req, DocRoot) ->
 					Login_Function = find_method(QueryString),					
 					if
 						Channels /= null ->
-							?MODULE:subscribe(Req, Channels, Since, Type, Login_Function, undefined);
+              Response = Req:ok({"text/html; charset=utf-8",
+        		    [{"Server","Hydrometeor"}], chunked}),	
+							?MODULE:subscribe(Response, Channels, Since, Type, Login_Function, undefined);
 						true ->
 							Req:respond({400, [], []})
 					end;
@@ -171,9 +176,7 @@ find_method(QueryString) ->
 %  in the logs with an id of < Since, send the first one.
 % If there wasn't anything, then time to subscribe to them all. The first one that sends a response
 % gets sent.
-subscribe(Req, Channels, Since, Type, Login_Function, JSONP) ->
-	Response = Req:ok({"text/html; charset=utf-8",
-		   [{"Server","Hydrometeor"}], chunked}),	
+subscribe(Response, Channels, Since, Type, Login_Function, JSONP) ->
 	case Since of
 		null ->
 			% Much easier
@@ -188,7 +191,7 @@ subscribe(Req, Channels, Since, Type, Login_Function, JSONP) ->
 			case M of
 				[] ->
 					% There isn't one, stream without since
-					subscribe(Req, Channels, null, Type, Login_Function, JSONP);
+					subscribe(Response, Channels, null, Type, Login_Function, JSONP);
 				_ ->
 					% Send ourselves the messages, then call feed
 					self() ! {router_msg, M},
