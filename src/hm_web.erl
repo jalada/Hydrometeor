@@ -258,8 +258,12 @@ feed(Response, Type, JSONP) ->
 			io:format("Stream process received unknown message: ~p~n", [Else])
 	after
 		?TIMEOUT ->
-			%% Not fully implemented in JS
-			Response:write_chunk(["-1,\"\""])
+			case JSONP of
+				undefined ->
+					Response:write_chunk(["-1,\"\""]);
+				_ ->
+					Response:write_chunk([JSONP, "(\"-1,\\\"\\\""])
+			end
 	end,
 	case Type of
 		{stream, _} ->
